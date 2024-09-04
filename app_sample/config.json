@@ -1,0 +1,12 @@
+{
+    "connection_string": {
+        "driver": "ODBC Driver 17 for SQL Server",
+        "server": "03334CIP",
+        "database": "fastapi",
+        "username": "fastapi",
+        "password": "Password123"
+    },
+    "security": {
+        "secret_key": "c2VjcmV0a2V5"
+    }
+}
