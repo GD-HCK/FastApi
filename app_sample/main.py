@@ -1,11 +1,15 @@
 from fastapi import FastAPI
-from configuration import config
+from app_sample.configuration import config
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from routes.person_controller import router
 
-DATABASE_URL = f'mssql+pyodbc://{config['connection_string']['username']}:{config['connection_string']['password']}@{config['connection_string']['server']}/{config['connection_string']['database']}?driver={config['connection_string']['driver'].replace(" ", "+")}'
+USERNAME = config['connection_string']['username']
+PASSWORD = config['connection_string']['password']
+SERVER = config['connection_string']['server']
+DATABASE = config['connection_string']['database']
+DRIVER = config['connection_string']['driver'].replace(" ", "+")
+DATABASE_URL = f'mssql+pyodbc://{USERNAME}:{PASSWORD}@{SERVER}/{DATABASE}?driver={DRIVER}'
 
 app = FastAPI()
 engine = create_engine(DATABASE_URL)

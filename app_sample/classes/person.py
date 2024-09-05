@@ -3,6 +3,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from sqlalchemy import Column, Integer, String
+from http import HTTPStatus
+import json
 
 class Person(BaseModel):
     id: int = None
@@ -79,30 +81,33 @@ class Person(BaseModel):
             person.id = len(people) + 1
             people.append(person.model_dump())
         except Exception as e:
-            return {"error": f"{e}"}
-        return people
+            return {"error": f"{e}", "status": HTTPStatus.INTERNAL_SERVER_ERROR}
+        return {"status": HTTPStatus.CREATED, "person": person}
 
     @classmethod
-    async def delete_person(cls, id):
+    async def delete_person(cls, id: int):
         if error_msg:
-            return {"error": error_msg}
-        
+            return {"error": error_msg, "status": HTTPStatus.BAD_REQUEST}
+    
         try:
             people.remove((await Person.get_person(id))[0])
         except Exception as e:
-            return {"error": f"{e}"}
-        return people
+            return {"error": f"{e}", "status": HTTPStatus.INTERNAL_SERVER_ERROR}
+        return {"status": HTTPStatus.OK, "id": id}
     
     @classmethod
-    async def update_person(cls, id, person):
+    async def update_person(cls, id: int, body):
         if error_msg:
             return {"error": error_msg}
         
-        i = ((await Person.get_person(id))[0])
-        new_person = person.model_dump()
-        new_person['id'] = i['id']
-        i.update(new_person)
-        return people
+        person = ((await Person.get_person(id))[0])
+        new_person = person
+        if not person:
+            return {"error": f"Person with id {id} not found", "status": HTTPStatus.NOT_FOUND}
+        for k,v in body:
+            new_person[k] = v
+        person.update(new_person)
+        return {"status": HTTPStatus.OK, "person": person}
     
 
 def fetch_random_users(count):
