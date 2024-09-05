@@ -1,23 +1,30 @@
 from pydantic import BaseModel
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 import requests
 from sqlalchemy import Column, Integer, String
 from http import HTTPStatus
-import json
+from sqlalchemy.orm import Session
+from db import Base
+from uuid import UUID
 
-class Person(BaseModel):
-    id: int = None
-    name: str
+# Pydantic models
+class PersonSchema(BaseModel):
+    name: UUID | None = None
     age: int
     city: str
     state: str
     country: str
     address: str
 
+    class Config:
+        orm_mode = True
+
+    
+class Person(Base):
+
     __tablename__ = "users"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UNIQUEIDENTIFIER, primary_key=True, index=True)
     name = Column(String, index=True)
     age = Column(Integer)
     city = Column(String)
@@ -30,12 +37,13 @@ class Person(BaseModel):
         return cls(**data)
     
     @classmethod
-    def get_all(cls):
-        return people
+    def get_all(cls, db: Session):
+        return db.query(cls).all()
     
     @classmethod
     async def get_person (
         cls,
+        db: Session,
         id: int | None = None, # Annotated[int | None, Query(ge=0,lt=130)] = None
         name: str | None = None, 
         age: int | None = None, 
@@ -44,102 +52,69 @@ class Person(BaseModel):
         country: str | None = None, 
         address: str | None = None
         ):
-        if error_msg:
-            return {"error": error_msg}
-        
-        filtered_people = Person.get_all()
+        query = db.query(cls)
         
         if id is not None:
-            filtered_people = [person for person in filtered_people if person["id"] == id]
+            query = query.filter(cls.id == id)
         
         if name is not None:
-            filtered_people = [person for person in filtered_people if name.lower() in person["name"].lower()]
+            query = query.filter(cls.name.ilike(f"%{name}%"))
         
         if age is not None:
-            filtered_people = [person for person in filtered_people if person["age"] == age]
+            query = query.filter(cls.age == age)
         
         if city is not None:
-            filtered_people = [person for person in filtered_people if city.lower() in person["city"].lower()]
+            query = query.filter(cls.city.ilike(f"%{city}%"))
         
         if state is not None:
-            filtered_people = [person for person in filtered_people if state.lower() in person["state"].lower()]
+            query = query.filter(cls.state.ilike(f"%{state}%"))
         
         if country is not None:
-            filtered_people = [person for person in filtered_people if country.lower() in person["country"].lower()]
+            query = query.filter(cls.country.ilike(f"%{country}%"))
         
         if address is not None:
-            filtered_people = [person for person in filtered_people if address.lower() in person["address"].lower()]
+            query = query.filter(cls.address.ilike(f"%{address}%"))
         
-        return filtered_people
+        return query.all()
 
     @classmethod
-    async def add_person(cls, person):
-        if error_msg:
-            return {"error": error_msg}
-        
+    async def add_person(cls, db: Session, person_data: dict):
         try:
-            person.id = len(people) + 1
-            people.append(person.model_dump())
+            person = cls.from_dict(person_data)
+            db.add(person)
+            db.commit()
+            db.refresh(person)
         except Exception as e:
+            db.rollback()
             return {"error": f"{e}", "status": HTTPStatus.INTERNAL_SERVER_ERROR}
         return {"status": HTTPStatus.CREATED, "person": person}
 
     @classmethod
-    async def delete_person(cls, id: int):
-        if error_msg:
-            return {"error": error_msg, "status": HTTPStatus.BAD_REQUEST}
-    
+    async def delete_person(cls, db: Session, id: str):
         try:
-            people.remove((await Person.get_person(id))[0])
+            person = db.query(cls).filter(cls.id == id).first()
+            if not person:
+                return {"error": f"Person with id {id} not found", "status": HTTPStatus.NOT_FOUND}
+            db.delete(person)
+            db.commit()
         except Exception as e:
+            db.rollback()
             return {"error": f"{e}", "status": HTTPStatus.INTERNAL_SERVER_ERROR}
         return {"status": HTTPStatus.OK, "id": id}
     
     @classmethod
-    async def update_person(cls, id: int, body):
-        if error_msg:
-            return {"error": error_msg}
-        
-        person = ((await Person.get_person(id))[0])
-        new_person = person
-        if not person:
-            return {"error": f"Person with id {id} not found", "status": HTTPStatus.NOT_FOUND}
-        for k,v in body:
-            new_person[k] = v
-        person.update(new_person)
+    async def update_person(cls, db: Session, id: str, person_data: dict):
+        try:
+            person = db.query(cls).filter(cls.id == id).first()
+            if not person:
+                return {"error": f"Person with id {id} not found", "status": HTTPStatus.NOT_FOUND}
+            
+            for key, value in person_data.items():
+                setattr(person, key, value)
+            
+            db.commit()
+            db.refresh(person)
+        except Exception as e:
+            db.rollback()
+            return {"error": f"{e}", "status": HTTPStatus.INTERNAL_SERVER_ERROR}
         return {"status": HTTPStatus.OK, "person": person}
-    
-
-def fetch_random_users(count):
-    url = f"https://randomuser.me/api/?results={count}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()['results']
-    else:
-        raise Exception(response.json()['error'])
-    
-def generate_large_list(size):
-    users = fetch_random_users(size)
-    large_list = []
-    for i, user in enumerate(users, start=1):
-        address = f"{', '.join(str(v) for k,v in user['location']['street'].items())}, {user['location']['city']}, {user['location']['state']}, {user['location']['country']}"
-        entry = {
-            'id': i,
-            'name': ' '.join(v for k,v in user['name'].items()),
-            'age': user['dob']['age'],
-            'city': user['location']['city'],
-            'state': user['location']['state'],
-            'country': user['location']['country'],
-            'address': address
-        }
-        large_list.append(entry)
-    return large_list
-
-
-try:
-    people = generate_large_list(200)  # Adjust the size as needed
-    error_msg = ""
-except Exception as e:
-    error_msg = f'There was an issue request random users via API: {e}'
-    people = []
-    print(f"Error: {e}")
